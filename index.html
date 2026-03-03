@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard EPIs - Gestão Integrada</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        deepBg: '#130e2e',   
+                        cardBg: '#1f1642',   
+                        neonPink: '#ec4899', 
+                        neonOrange: '#f97316',
+                        neonBlue: '#3b82f6',
+                        neonPurple: '#a855f7',
+                        neonGreen: '#10b981' 
+                    },
+                    fontFamily: { sans: ['Inter', 'sans-serif'] }
+                }
+            }
+        }
+    </script>
+    <style>
+        html { scroll-behavior: smooth; }
+        body { background-color: #130e2e; color: #f3f4f6; overflow-x: hidden; }
+        
+        .glass-panel {
+            background: rgba(31, 22, 66, 0.95);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+
+        .filter-select {
+            background-color: rgba(19, 14, 46, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #e5e7eb;
+            font-size: 0.875rem;
+            border-radius: 0.5rem;
+            padding: 0.5rem;
+            width: 100%;
+            transition: all 0.3s;
+        }
+        .filter-select:focus {
+            outline: none;
+            border-color: #ec4899;
+            box-shadow: 0 0 10px rgba(236, 72, 153, 0.2);
+        }
+        
+        .blur-value {
+            filter: blur(5px);
+            user-select: none;
+            transition: filter 0.3s ease;
+        }
+
+        /* Área de rolagem para gráficos grandes */
+        .chart-scroll-container {
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding-right: 5px;
+        }
+        
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb { background: #3b82f6; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #ec4899; }
+    </style>
+</head>
+<body class="antialiased min-h-screen flex flex-col selection:bg-neonPink selection:text-white">
+
+    <header class="w-full p-4 border-b border-white/10 glass-panel sticky top-0 z-50 flex justify-between items-center h-16 shadow-lg">
+        <div class="flex items-center gap-3">
+            <div class="bg-neonPink/20 p-2 rounded-lg">
+                <i class="fa-solid fa-chart-pie text-neonPink text-xl"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold tracking-wide text-white leading-tight">GESTÃO DE AQUISIÇÕES</h1>
+                <p class="text-[10px] text-gray-400 uppercase tracking-widest">Painel Executivo</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-3">
+            <div id="last-sync-time" class="text-[10px] text-gray-400 font-mono hidden sm:block border-r border-white/10 pr-3 mr-1">
+                Sincronizado: --:--
+            </div>
+            <button onclick="togglePrivacy()" class="p-2 rounded-full hover:bg-white/10 transition text-gray-400 w-10 h-10 flex items-center justify-center" title="Ocultar Valores">
+                <i id="eye-icon" class="fa-solid fa-eye"></i>
+            </button>
+            <div id="status-badge" class="flex items-center gap-2 px-3 py-1 rounded-full bg-yellow-500/20 text-yellow-500 text-xs font-bold border border-yellow-500/30">
+                <i class="fa-solid fa-circle-notch fa-spin"></i>
+            </div>
+            <button onclick="forceUpdate()" class="p-2 rounded-full hover:bg-white/10 transition text-gray-400" title="Forçar Atualização">
+                <i class="fa-solid fa-sync"></i>
+            </button>
+        </div>
+    </header>
+
+    <section class="w-full max-w-[1920px] mx-auto px-4 sm:px-6 pt-6 pb-2">
+        <div class="glass-panel p-4 rounded-xl flex flex-col lg:flex-row gap-4 items-end lg:items-center justify-between">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 w-full">
+                <div class="flex flex-col gap-1">
+                    <label class="text-xs text-gray-400 uppercase font-bold ml-1">Ano</label>
+                    <select id="filter-ano" class="filter-select" onchange="applyFilters()"><option value="">Todos</option></select>
+                </div>
+                <div class="flex flex-col gap-1">
+                    <label class="text-xs text-gray-400 uppercase font-bold ml-1">Mês</label>
+                    <select id="filter-mes" class="filter-select" onchange="applyFilters()"><option value="">Todos</option></select>
+                </div>
+                <div class="flex flex-col gap-1">
+                    <label class="text-xs text-gray-400 uppercase font-bold ml-1">Contrato</label>
+                    <select id="filter-contrato" class="filter-select" onchange="applyFilters()"><option value="">Todos</option></select>
+                </div>
+                <div class="flex flex-col gap-1">
+                    <label class="text-xs text-gray-400 uppercase font-bold ml-1">Fornecedor</label>
+                    <select id="filter-fornecedor" class="filter-select" onchange="applyFilters()"><option value="">Todos</option></select>
+                </div>
+                <div class="flex flex-col gap-1">
+                    <label class="text-xs text-gray-400 uppercase font-bold ml-1">Item</label>
+                    <select id="filter-item" class="filter-select" onchange="applyFilters()"><option value="">Todos</option></select>
+                </div>
+            </div>
+            <button onclick="clearFilters()" class="w-full lg:w-auto px-6 py-2 bg-red-500/10 hover:bg-red-500/30 border border-red-500/30 text-red-500 rounded-lg text-sm font-bold transition flex items-center justify-center gap-2 h-[38px] mt-4 lg:mt-0">
+                <i class="fa-solid fa-filter-circle-xmark"></i> Limpar
+            </button>
+        </div>
+    </section>
+
+    <main class="flex-1 p-4 sm:p-6 w-full max-w-[1920px] mx-auto space-y-6 mb-10">
+        
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            <div class="glass-panel p-4 rounded-xl border-l-4 border-neonPink relative group hover:translate-y-[-2px] transition-transform">
+                <h3 class="text-[10px] font-bold uppercase text-gray-400">Custo Total</h3>
+                <p class="text-2xl font-bold text-white mt-1 kpi-value" id="kpi-custo-total" data-type="money" data-val="0">R$ 0,00</p>
+                <i class="fa-solid fa-money-bill-wave absolute right-2 bottom-2 text-neonPink/10 text-5xl group-hover:text-neonPink/20 transition"></i>
+            </div>
+            <div class="glass-panel p-4 rounded-xl border-l-4 border-neonBlue relative group hover:translate-y-[-2px] transition-transform">
+                <h3 class="text-[10px] font-bold uppercase text-gray-400">Total de Itens (Qtd)</h3>
+                <p class="text-2xl font-bold text-white mt-1 kpi-value" id="kpi-qtd-total" data-type="number" data-val="0">0</p>
+                <i class="fa-solid fa-boxes-stacked absolute right-2 bottom-2 text-neonBlue/10 text-5xl group-hover:text-neonBlue/20 transition"></i>
+            </div>
+            <div class="glass-panel p-4 rounded-xl border-l-4 border-neonOrange relative group hover:translate-y-[-2px] transition-transform">
+                <h3 class="text-[10px] font-bold uppercase text-gray-400">Ticket Médio (Por Item)</h3>
+                <p class="text-2xl font-bold text-white mt-1 kpi-value" id="kpi-ticket-medio" data-type="money" data-val="0">R$ 0,00</p>
+                <i class="fa-solid fa-tag absolute right-2 bottom-2 text-neonOrange/10 text-5xl group-hover:text-neonOrange/20 transition"></i>
+            </div>
+            <div class="glass-panel p-4 rounded-xl border-l-4 border-neonGreen relative group hover:translate-y-[-2px] transition-transform">
+                <h3 class="text-[10px] font-bold uppercase text-gray-400">Contratos Ativos</h3>
+                <p class="text-2xl font-bold text-white mt-1 kpi-value" id="kpi-contratos" data-type="number" data-val="0">0</p>
+                <i class="fa-solid fa-file-signature absolute right-2 bottom-2 text-neonGreen/10 text-5xl group-hover:text-neonGreen/20 transition"></i>
+            </div>
+            <div class="glass-panel p-4 rounded-xl border-l-4 border-neonPurple relative group hover:translate-y-[-2px] transition-transform">
+                <h3 class="text-[10px] font-bold uppercase text-gray-400">Fornecedores Ativos</h3>
+                <p class="text-2xl font-bold text-white mt-1 kpi-value" id="kpi-fornecedores" data-type="number" data-val="0">0</p>
+                <i class="fa-solid fa-truck absolute right-2 bottom-2 text-neonPurple/10 text-5xl group-hover:text-neonPurple/20 transition"></i>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-6">
+            <div class="lg:col-span-8 glass-panel p-5 rounded-2xl flex flex-col">
+                <h3 class="font-bold text-white mb-4">Custos Totais por Mês (R$)</h3>
+                <div class="flex-1 relative w-full h-[300px]"><canvas id="chartCustosMes"></canvas></div>
+            </div>
+            <div class="lg:col-span-4 glass-panel p-5 rounded-2xl flex flex-col">
+                <h3 class="font-bold text-white mb-4">Número Total de Aquisições por Mês (Qtd)</h3>
+                <div class="flex-1 relative w-full h-[300px]"><canvas id="chartAquisicoesMes"></canvas></div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div class="lg:col-span-6 glass-panel p-5 rounded-2xl flex flex-col">
+                <h3 class="font-bold text-white mb-4 text-center">Custo Total x Fornecedor (R$)</h3>
+                <div class="flex-1 relative flex justify-center items-center h-[350px]"><canvas id="chartFornecedor"></canvas></div>
+            </div>
+            <div class="lg:col-span-6 glass-panel p-5 rounded-2xl flex flex-col">
+                <h3 class="font-bold text-white mb-4 text-center">Custo Total x Contrato (R$)</h3>
+                <div class="flex-1 relative flex justify-center items-center h-[350px]"><canvas id="chartContrato"></canvas></div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div class="lg:col-span-6 glass-panel p-5 rounded-2xl">
+                <h3 class="font-bold text-white mb-4">Top 10 Itens Mais Comprados (Qtd)</h3>
+                <div class="h-[400px] relative w-full"><canvas id="chartTop10Itens"></canvas></div>
+            </div>
+            <div class="lg:col-span-6 glass-panel p-5 rounded-2xl flex flex-col">
+                <h3 class="font-bold text-white mb-4">Valor Histórico Médio por Item (R$)</h3>
+                <div class="flex-1 w-full chart-scroll-container h-[400px]">
+                    <div id="chartMediaItemContainer" class="relative w-full h-[400px]">
+                        <canvas id="chartMediaItem"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        // Registra o Plugin de DataLabels
+        Chart.register(ChartDataLabels);
+
+        // URL Oficial da base do Google Sheets
+        const SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQndmVNiz6fs-owslDZ-4wZr5mfw60WJ75LBClro2qZsIcdmtmVt21gyTdZDMG5kSVUbDpJApBeSjYG/pub?output=csv';
+
+        let myCharts = {};
+        let globalData = [];
+        let privacyMode = false;
+
+        // Índices das Colunas do Google Sheets
+        const COL_DATA = 0;
+        const COL_ITEM = 1;
+        const COL_CONTRATO = 2;
+        const COL_FORNECEDOR = 3;
+        const COL_VAL_UNIT = 4;
+        const COL_QTD = 5;
+        const COL_VAL_TOTAL = 6;
+        const COL_ANO = 7;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchData();
+        });
+
+        function forceUpdate() { fetchData(); }
+
+        function fetchData() {
+            updateStatus('loading');
+            
+            // CACHE BUSTER: Gera um número único (hora exata) para forçar o download sempre novo
+            const timestamp = new Date().getTime();
+            
+            // Adicionamos o cache-buster na URL final
+            const urlComCacheBuster = SHEET_URL + '&t=' + timestamp;
+            const PROXY_URL = 'https://corsproxy.io/?' + encodeURIComponent(urlComCacheBuster);
+            
+            // Adicionamos as opções de { cache: 'no-store' } para obrigar o navegador a não usar os dados antigos
+            fetch(PROXY_URL, { cache: 'no-store', pragma: 'no-cache' })
+                .then(response => {
+                    if (!response.ok) throw new Error("Erro na rede");
+                    return response.text();
+                })
+                .then(csvText => {
+                    Papa.parse(csvText, {
+                        header: false,
+                        skipEmptyLines: true,
+                        complete: function(results) {
+                            if(results.data && results.data.length > 1) {
+                                globalData = results.data.slice(1);
+                                applyFilters(); 
+                                updateStatus('success');
+                            } else {
+                                updateStatus('error', 'Planilha Vazia');
+                            }
+                        }
+                    });
+                })
+                .catch(err => {
+                    console.error("Falha na conexão:", err);
+                    updateStatus('error', 'Erro Conexão');
+                });
+        }
+
+        function updateStatus(state, msg) {
+            const el = document.getElementById('status-badge');
+            const syncEl = document.getElementById('last-sync-time');
+            const now = new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'});
+
+            if(state === 'loading') {
+                el.className = "flex items-center gap-2 px-3 py-1 rounded-full bg-yellow-500/20 text-yellow-500 text-xs font-bold border border-yellow-500/30";
+                el.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i>';
+            } else if (state === 'success') {
+                el.className = "flex items-center gap-2 px-3 py-1 rounded-full bg-green-500/20 text-green-400 text-xs font-bold border border-green-500/30";
+                el.innerHTML = '<i class="fa-solid fa-wifi"></i> ONLINE';
+                syncEl.innerText = `Sincronizado: ${now}`;
+            } else {
+                el.className = "flex items-center gap-2 px-3 py-1 rounded-full bg-red-500/20 text-red-500 text-xs font-bold border border-red-500/30";
+                el.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i>`;
+            }
+        }
+
+        function togglePrivacy() {
+            privacyMode = !privacyMode;
+            const icon = document.getElementById('eye-icon');
+            if(privacyMode) {
+                icon.classList.replace('fa-eye', 'fa-eye-slash');
+            } else {
+                icon.classList.replace('fa-eye-slash', 'fa-eye');
+            }
+            applyPrivacyToKPIs();
+            applyFilters(); 
+        }
+
+        function applyPrivacyToKPIs() {
+            const kpis = document.querySelectorAll('.kpi-value');
+            kpis.forEach(el => {
+                const val = parseFloat(el.getAttribute('data-val'));
+                const type = el.getAttribute('data-type');
+                
+                if(privacyMode) {
+                    el.innerText = type === 'money' ? 'R$ - - - -' : '- - - -';
+                    el.classList.add('blur-sm');
+                } else {
+                    el.innerText = type === 'money' 
+                        ? val.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})
+                        : val.toLocaleString('pt-BR');
+                    el.classList.remove('blur-sm');
+                }
+            });
+        }
+
+        function getVal(row, colIndex) {
+            return row[colIndex] ? row[colIndex].trim() : "";
+        }
+
+        function getMonthFromDate(dateStr) {
+            if(!dateStr) return null;
+            if(dateStr.includes('/')) return parseInt(dateStr.split('/')[1]).toString();
+            if(dateStr.includes('-')) return parseInt(dateStr.split('-')[1]).toString();
+            return null;
+        }
+
+        function getMonthName(numStr) {
+            const months = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+            return months[parseInt(numStr) - 1] || numStr;
+        }
+
+        function getMonthShort(numStr) {
+            const months = ["JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"];
+            return months[parseInt(numStr) - 1] || numStr;
+        }
+
+        function parseMoney(val) {
+            if(val === null || val === undefined || val === '') return 0;
+            if(typeof val === 'number') return val;
+            let clean = val.toString().replace('R$', '').trim();
+            if(clean.includes(',')) {
+                clean = clean.replace(/\./g, '').replace(',', '.');
+            }
+            return parseFloat(clean) || 0;
+        }
+
+        function matchFilters(row, activeFilters, ignoreKey = null) {
+            const ano = getVal(row, COL_ANO);
+            const mes = getMonthFromDate(getVal(row, COL_DATA));
+            const c = getVal(row, COL_CONTRATO).toLowerCase();
+            const f = getVal(row, COL_FORNECEDOR).toLowerCase(); 
+            const i = getVal(row, COL_ITEM).toLowerCase();
+
+            let match = true;
+            if (ignoreKey !== 'ano' && activeFilters.ano && ano !== activeFilters.ano) match = false;
+            if (ignoreKey !== 'mes' && activeFilters.mes && mes !== activeFilters.mes) match = false;
+            if (ignoreKey !== 'contrato' && activeFilters.contrato && !c.includes(activeFilters.contrato)) match = false;
+            if (ignoreKey !== 'fornecedor' && activeFilters.fornecedor && !f.includes(activeFilters.fornecedor)) match = false;
+            if (ignoreKey !== 'item' && activeFilters.item && !i.includes(activeFilters.item)) match = false;
+
+            return match;
+        }
+
+        function updateDropdown(selectId, colIndex, activeFilters, filterKey, isMonth = false, isNumeric = false) {
+            const selectEl = document.getElementById(selectId);
+            const currentValue = selectEl.value;
+
+            const validData = globalData.filter(row => matchFilters(row, activeFilters, filterKey));
+            const uniqueSet = new Set();
+            
+            validData.forEach(row => {
+                let val = isMonth ? getMonthFromDate(getVal(row, COL_DATA)) : getVal(row, colIndex);
+                if(val) uniqueSet.add(val);
+            });
+
+            selectEl.innerHTML = '<option value="">Todos</option>';
+            
+            let sortedArr = Array.from(uniqueSet);
+            if(isNumeric || isMonth) sortedArr.sort((a,b) => parseInt(a) - parseInt(b));
+            else sortedArr.sort();
+
+            sortedArr.forEach(val => {
+                const opt = document.createElement('option');
+                opt.value = val;
+                opt.text = isMonth ? getMonthName(val) : val;
+                if(val === currentValue) opt.selected = true;
+                selectEl.appendChild(opt);
+            });
+        }
+
+        function applyFilters() {
+            const filters = {
+                ano: document.getElementById('filter-ano').value,
+                mes: document.getElementById('filter-mes').value,
+                contrato: document.getElementById('filter-contrato').value.toLowerCase(),
+                fornecedor: document.getElementById('filter-fornecedor').value.toLowerCase(),
+                item: document.getElementById('filter-item').value.toLowerCase()
+            };
+
+            updateDropdown('filter-ano', COL_ANO, filters, 'ano', false, true);
+            updateDropdown('filter-mes', COL_DATA, filters, 'mes', true, true);
+            updateDropdown('filter-contrato', COL_CONTRATO, filters, 'contrato');
+            updateDropdown('filter-fornecedor', COL_FORNECEDOR, filters, 'fornecedor');
+            updateDropdown('filter-item', COL_ITEM, filters, 'item');
+
+            const fullyFilteredData = globalData.filter(row => matchFilters(row, filters));
+            processData(fullyFilteredData);
+        }
+
+        function clearFilters() {
+            document.getElementById('filter-ano').value = "";
+            document.getElementById('filter-mes').value = "";
+            document.getElementById('filter-contrato').value = "";
+            document.getElementById('filter-fornecedor').value = "";
+            document.getElementById('filter-item').value = "";
+            applyFilters();
+        }
+
+        function processData(rows) {
+            let custoMes = {};
+            let aquisicaoMes = {};
+            let custoFornecedor = {};
+            let custoContrato = {};
+            let qtdItem = {};
+            let sumTotalPorItem = {};
+            let sumQtdPorItem = {};
+            let totalGeralCusto = 0;
+            let totalGeralQtd = 0;
+            let setContratos = new Set();
+            let setFornecedores = new Set();
+            let setMesesAtivosNum = new Set();
+
+            rows.forEach(row => {
+                const data = getVal(row, COL_DATA);
+                const item = getVal(row, COL_ITEM);
+                const contrato = getVal(row, COL_CONTRATO);
+                const fornecedor = getVal(row, COL_FORNECEDOR);
+                const qtd = parseMoney(getVal(row, COL_QTD)); 
+                const valorTotal = parseMoney(getVal(row, COL_VAL_TOTAL));
+                const mesNum = getMonthFromDate(data);
+                
+                if(!item || qtd === 0) return; 
+
+                totalGeralCusto += valorTotal;
+                totalGeralQtd += qtd;
+                if(contrato) setContratos.add(contrato);
+                if(fornecedor) setFornecedores.add(fornecedor);
+
+                if(mesNum) {
+                    const intMes = parseInt(mesNum);
+                    setMesesAtivosNum.add(intMes);
+                    const mesLabel = getMonthShort(intMes);
+                    custoMes[mesLabel] = (custoMes[mesLabel] || 0) + valorTotal;
+                    aquisicaoMes[mesLabel] = (aquisicaoMes[mesLabel] || 0) + qtd;
+                }
+
+                if(fornecedor) custoFornecedor[fornecedor] = (custoFornecedor[fornecedor] || 0) + valorTotal;
+                if(contrato) custoContrato[contrato] = (custoContrato[contrato] || 0) + valorTotal;
+
+                if(item) {
+                    qtdItem[item] = (qtdItem[item] || 0) + qtd;
+                    sumTotalPorItem[item] = (sumTotalPorItem[item] || 0) + valorTotal;
+                    sumQtdPorItem[item] = (sumQtdPorItem[item] || 0) + qtd;
+                }
+            });
+
+            const updateKpi = (id, val) => {
+                const el = document.getElementById(id);
+                if(el) el.setAttribute('data-val', val);
+            };
+
+            const ticketMedio = totalGeralQtd > 0 ? (totalGeralCusto / totalGeralQtd) : 0;
+
+            updateKpi('kpi-custo-total', totalGeralCusto);
+            updateKpi('kpi-qtd-total', totalGeralQtd);
+            updateKpi('kpi-ticket-medio', ticketMedio);
+            updateKpi('kpi-contratos', setContratos.size);
+            updateKpi('kpi-fornecedores', setFornecedores.size);
+
+            applyPrivacyToKPIs();
+
+            const commonDataLabelsMoney = {
+                color: '#ffffff', font: { weight: 'bold', size: 10 }, display: 'auto',
+                formatter: (value) => {
+                    if (value === 0 || privacyMode) return null;
+                    return value.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL', maximumFractionDigits: 0});
+                }
+            };
+            const commonDataLabelsNumber = {
+                color: '#ffffff', font: { weight: 'bold', size: 10 }, display: 'auto',
+                formatter: (value) => {
+                    if (value === 0 || privacyMode) return null;
+                    return value.toLocaleString('pt-BR');
+                }
+            };
+
+            const sortedMesesInt = Array.from(setMesesAtivosNum).sort((a,b) => a - b);
+            const mesesLabels = sortedMesesInt.map(m => getMonthShort(m));
+            
+            // 1. Gráfico: Custos Totais (Mês)
+            renderChart('chartCustosMes', 'bar', mesesLabels, [{
+                label: 'Custo Total (R$)',
+                data: mesesLabels.map(m => custoMes[m]),
+                backgroundColor: '#ec4899',
+                borderRadius: 4
+            }], {
+                plugins: { datalabels: { ...commonDataLabelsMoney, align: 'end', anchor: 'end' } },
+                scales: { 
+                    x: { ticks: { color: '#6b7280' }, grid: { display: false } },
+                    y: { 
+                        beginAtZero: true, 
+                        grace: '15%',
+                        ticks: { color: '#6b7280', callback: v => privacyMode ? '****' : v.toLocaleString('pt-BR', {style:'currency', currency:'BRL'}) },
+                        grid: { color: 'rgba(255,255,255,0.03)' }
+                    } 
+                }
+            });
+
+            // 2. Gráfico: Aquisições por Mês
+            renderChart('chartAquisicoesMes', 'line', mesesLabels, [{
+                label: 'Aquisições (Qtd)',
+                data: mesesLabels.map(m => aquisicaoMes[m]),
+                borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.2)',
+                fill: true, tension: 0.3, pointRadius: 5
+            }], {
+                plugins: { datalabels: { ...commonDataLabelsNumber, align: 'top', anchor: 'bottom' } },
+                scales: { 
+                    x: { ticks: { color: '#6b7280' }, grid: { display: false } },
+                    y: { 
+                        beginAtZero: true, 
+                        grace: '15%', 
+                        ticks: { color: '#6b7280' },
+                        grid: { color: 'rgba(255,255,255,0.03)' }
+                    } 
+                }
+            });
+
+            // 3 e 4. Participações de Pizza/Rosca
+            const tooltipMoney = { callbacks: { label: (ctx) => privacyMode ? ' R$ ****' : ' ' + ctx.parsed.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'}) } };
+
+            const sortFornecedores = Object.entries(custoFornecedor).sort((a,b) => b[1] - a[1]);
+            renderChart('chartFornecedor', 'doughnut', sortFornecedores.map(x=>x[0]), [{
+                data: sortFornecedores.map(x=>x[1]),
+                backgroundColor: ['#ec4899', '#3b82f6', '#f97316', '#a855f7', '#10b981', '#ef4444', '#14b8a6', '#facc15'],
+                borderWidth: 0
+            }], { plugins: { datalabels: { ...commonDataLabelsMoney, anchor: 'center', align: 'center', display: true }, tooltip: tooltipMoney } });
+
+            const sortContratos = Object.entries(custoContrato).sort((a,b) => b[1] - a[1]);
+            renderChart('chartContrato', 'pie', sortContratos.map(x=>x[0]), [{
+                data: sortContratos.map(x=>x[1]),
+                backgroundColor: ['#3b82f6', '#10b981', '#f97316', '#ec4899', '#a855f7', '#ef4444'],
+                borderWidth: 0
+            }], { plugins: { datalabels: { ...commonDataLabelsMoney, anchor: 'center', align: 'center', display: true }, tooltip: tooltipMoney } });
+
+            // 5. Gráfico: Top 10 Itens (Qtd)
+            const sortTopItens = Object.entries(qtdItem).sort((a,b) => b[1] - a[1]).slice(0, 10);
+            renderChart('chartTop10Itens', 'bar', sortTopItens.map(x=>x[0].substring(0,30)), [{
+                label: 'Qtd Adquirida',
+                data: sortTopItens.map(x=>x[1]),
+                backgroundColor: '#f97316',
+                borderRadius: 4
+            }], {
+                indexAxis: 'y', 
+                plugins: { datalabels: { ...commonDataLabelsNumber, align: 'end', anchor: 'end' } },
+                scales: { 
+                    x: { 
+                        beginAtZero: true, 
+                        grace: '15%', 
+                        ticks: { color: '#6b7280' },
+                        grid: { display: false }
+                    },
+                    y: { ticks: { color: '#6b7280' }, grid: { display: false } }
+                }
+            });
+
+            // 6. Gráfico: Valor Histórico (Média)
+            let mediaItemArr = [];
+            for (let itemKey in sumTotalPorItem) {
+                if(sumQtdPorItem[itemKey] > 0) {
+                    mediaItemArr.push({
+                        item: itemKey.substring(0,35), 
+                        media: sumTotalPorItem[itemKey] / sumQtdPorItem[itemKey]
+                    });
+                }
+            }
+            const sortMediaItem = mediaItemArr.sort((a,b) => b.media - a.media);
+
+            const divContainer = document.getElementById('chartMediaItemContainer');
+            const requiredHeight = Math.max(400, sortMediaItem.length * 35);
+            divContainer.style.height = requiredHeight + 'px';
+
+            renderChart('chartMediaItem', 'bar', sortMediaItem.map(x=>x.item), [{
+                label: 'Preço Médio (R$)',
+                data: sortMediaItem.map(x=>x.media),
+                backgroundColor: '#10b981',
+                borderRadius: 4
+            }], {
+                indexAxis: 'y', 
+                maintainAspectRatio: false, 
+                plugins: { datalabels: { ...commonDataLabelsMoney, align: 'end', anchor: 'end' } },
+                scales: { 
+                    x: { 
+                        beginAtZero: true,
+                        grace: '15%', 
+                        ticks: { color: '#6b7280', callback: v => privacyMode ? '****' : v.toLocaleString('pt-BR', {style:'currency', currency:'BRL'}) },
+                        grid: { display: false }
+                    },
+                    y: { ticks: { color: '#6b7280' }, grid: { display: false } }
+                }
+            });
+        }
+
+        // Função Genérica para Renderizar Gráficos
+        function renderChart(id, type, labels, datasets, opts={}) {
+            const ctx = document.getElementById(id).getContext('2d');
+            if (myCharts[id]) myCharts[id].destroy();
+
+            const defaultOptions = {
+                responsive: true,
+                maintainAspectRatio: false,
+                layout: {
+                    padding: { top: 25, right: 40, bottom: 0, left: 0 } 
+                },
+                plugins: {
+                    legend: { display: (type === 'pie' || type === 'doughnut'), labels: { color: '#9ca3af', font:{size:10}, boxWidth: 10 }, position: 'right' },
+                    tooltip: { backgroundColor: '#1f1642', titleColor: '#fff', bodyColor: '#ccc', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1 }
+                }
+            };
+
+            const mergedOptions = { ...defaultOptions, ...opts };
+            if(opts.plugins) mergedOptions.plugins = { ...defaultOptions.plugins, ...opts.plugins };
+            if(opts.scales) mergedOptions.scales = opts.scales; 
+
+            myCharts[id] = new Chart(ctx, {
+                type: type,
+                data: { labels, datasets },
+                options: mergedOptions
+            });
+        }
+    </script>
+</body>
+</html>
